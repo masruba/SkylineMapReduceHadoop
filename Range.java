@@ -50,94 +50,7 @@ public class Range{
     }
   }
   
-    
-  public static class Map extends MapReduceBase implements Mapper<LongWritable, Text, Text, DoubleWritable> {
-    private static final DoubleWritable one = new DoubleWritable(1.0);
-    private static final Text ctext = new Text("c");
-    private static final Text cnmtext = new Text("c_no_missing");
-    
-    public void map(LongWritable key, Text value, OutputCollector<Text, DoubleWritable> output, Reporter reporter) throws IOException {
-  		String line = value.toString();
-  		if (line.trim().equals("")) {
-  		  return;
-  		}
- 		
-      output.collect(ctext, one);
-
-  		Point p = new Point();
-  		if (p.parseFromRawLine(line)) {
-  		  output.collect(cnmtext, one);
-  		}
-  		
-  		int i = 0;
-      for (double v : p.value) {
-        if (!p.mm[i]) {
-          output.collect(new Text(Integer.toString(i)), new DoubleWritable(v));
-          output.collect(new Text(String.format("c%d",i)), one);
-        }
-		    ++i;
-      }
-    }
-  }  
- 
-  public static class Reduce extends MapReduceBase implements Reducer<Text, DoubleWritable, Text, DoubleWritable> {
-    public void reduce(Text key, Iterator<DoubleWritable> values, OutputCollector<Text, DoubleWritable> output, Reporter reporter) throws IOException {
-      
-      if (key.toString().charAt(0) == 'c') {
-        double c = 0.0;
-		    while (values.hasNext()) {
-		      c += values.next().get();
-		    }
-		    output.collect(key, new DoubleWritable(c));
-		    return;
-		  }
-
-      double maxValue = -Double.MAX_VALUE;
-		  double minValue = Double.MAX_VALUE;
-		  
-		  while (values.hasNext()) {
-			  double v = values.next().get();				
-			  if (v > maxValue) {
-			    maxValue = v;
-			  }
-			  if (v < minValue) {
-          minValue = v;
-        }
-		  }
-
-		  output.collect(key, new DoubleWritable(maxValue));    		  		
-		  output.collect(key, new DoubleWritable(minValue)); 
-
-/*
-      double maxValue = -Double.MAX_VALUE;
-		  double minValue = Double.MAX_VALUE;
-      double maxValue2 = -Double.MAX_VALUE;
-		  double minValue2 = Double.MAX_VALUE;
-		  
-		  while (values.hasNext()) {
-			  double v = values.next().get();				
-			  if (v > maxValue) {
-			    maxValue2 = maxValue;
-			    maxValue = v;
-			  } else if (v > maxValue2) {
-			    maxValue2 = v;
-			  }
-			  
-			  if (v < minValue) {
-          minValue2 = minValue;
-          minValue = v;
-        } else if (v < minValue2) {
-          minValue2 = v;
-        }
-		  }
-
-		  output.collect(key, new DoubleWritable(maxValue));    		
-		  output.collect(key, new DoubleWritable(maxValue2));    		
-		  output.collect(key, new DoubleWritable(minValue2));    		
-		  output.collect(key, new DoubleWritable(minValue)); 		*/
-    }
-  }
-
+  
   public static void main(String[] args) throws Exception {
     JobConf conf = new JobConf(Range.class);
     conf.setJobName("Range");
@@ -157,7 +70,6 @@ public class Range{
     FileOutputFormat.setOutputPath(conf, new Path(args[1]));
 
     JobClient.runJob(conf);
-
   } 
 }
 

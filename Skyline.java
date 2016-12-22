@@ -40,92 +40,6 @@ public class Skyline extends Configured implements Tool {
   public static double[] minvalues;
   public static double[] maxvalues;
 
-//  public static QTNode root;
-  
-  public static class Point {
-    public int[] pk;
-    public double[] value;
-
-    public Point() {
-      pk = new int[pk_positions.length / 2];
-      value = new double[value_positions.length / 2];
-      for (int i = 0; i < pk.length; ++i) {
-        pk[i] = -1;
-      }
-      for (int i = 0; i < value.length; ++i) {
-        value[i] = -1e20;  // -inf
-      }
-    }
-
-    public boolean parseFromRawLine(String line) {  // When scanning raw input file in mapper of L-SKY-MR.
-      if (line.equals("")) return false;
-      
-      // Read PK
-      for (int i = 0; i < pk_positions.length; i += 2) {
-        pk[i/2] = Integer.parseInt(line.substring(pk_positions[i], pk_positions[i+1]));
-      }
-
-      // Read value
-      for (int i = 0; i < value_positions.length; i += 2) {
-        // value_type will reverse the values.
-        value[i/2] = value_type[i/2] * Double.parseDouble(line.substring(value_positions[i], value_positions[i+1]));
-      }
-      return true;
-    }
-    
-    public void parseFromString(String line) {  // E.g. scanning String formed by p.ToString(), scanned inside reducer of L-SKY-MR.
-  		String delims = ",";
-  		String[] tokens = line.split(delims);
-      for (int i = 0; i < pk.length; ++i) {
-        pk[i] = Integer.parseInt(tokens[i]);
-      }
-      for (int i = 0; i < value.length; ++i) {
-        value[i] = Double.parseDouble(tokens[pk.length + i]);
-      }
-    }
-
-    public String formatPK() {
-      return String.format("%d_%d_%d", pk[0], pk[1]/10000, pk[1]%10000);
-    }
-
-    public String toString() {
-      StringBuilder sb = new StringBuilder();
-      for (int i = 0; i < pk.length; ++i) {
-        if (i > 0) sb.append(",");
-        sb.append(Integer.toString(pk[i]));
-      }
-      for (int i = 0; i < value.length; ++i) {
-        sb.append(",");
-        sb.append(Double.toString(value[i]));
-      }
-      return sb.toString();
-    }
-
-    // returns true if 'this' dominates (MIN) 'p'.
-    public boolean dominates(Point p) {
-      boolean less_found = false;
-      for (int i = 0; i < value.length; ++i) {
-        if (value[i] > p.value[i]) return false;
-        if (value[i] < p.value[i]) less_found = true;
-      }
-      return less_found;
-    }
-
-    // returns
-    // -1  this dominates p
-    //  0  incomparable (no point dominates the other)
-    //  1  p dominates this  
-    public int compare(Point p) {
-      int this_is_less_than_p = 0;
-      int p_is_less_than_this = 0;
-      for (int i = 0; i < value.length; ++i) {
-        if (value[i] > p.value[i]) p_is_less_than_this = 1;
-        else if (value[i] < p.value[i]) this_is_less_than_p = -1;
-      }
-      return p_is_less_than_this + this_is_less_than_p;
-    }
-  }
-
   // O(n^2*dim)
   public static Vector<Point> GSKY(Vector<Point> p) {
     Vector<Point> sky = new Vector<Point>();
@@ -350,115 +264,7 @@ public class Skyline extends Configured implements Tool {
 
 */
 
-  public static class LSkyMapper extends MapReduceBase implements Mapper<LongWritable, Text, Text, Text> {
-    public QTNode root;
-    int map_called;
-
-    public void configure(JobConf job) {
-      map_called = 0;
-
-      //System.out.println("in configure!");
-      String qtfilename = new Path("/user/cloudera/data/qtd.txt").getName();
-//      System.out.println("!!! " + qtfilename);      
-
-      try {
-        Path [] cacheFiles = DistributedCache.getLocalCacheFiles(job);
-        String filename = null;
-        
-        if (null != cacheFiles && cacheFiles.length > 0) {
-          for (Path cachePath : cacheFiles) {
-//            System.out.println(">>> " + cachePath.getName() + " | " + cachePath.toString());
-            if (cachePath.getName().equals(qtfilename)) {
-//              System.out.println(">>>paisi " + cachePath.getName() + " | " + cachePath.toString());
-              filename = cachePath.toString();
-              break;
-            }
-          }
-        }
-
-        root = readQT(filename);
-        //if (root == null) System.out.println("ay hay!!!!");
-      } catch (Exception e) {
-        e.printStackTrace();
-      }
-    }
-      
-    public void map(LongWritable key, Text value, OutputCollector<Text, Text> output, Reporter reporter) throws IOException {
-      map_called++;
-      //if (map_called % 100 == 0) System.out.println("map called >>>> " + map_called);
-
-      String line = value.toString();
-      if (line.trim().equals("")) return;  // blank line
-
-      Point p = new Point();
-      p.parseFromRawLine(line);
-      
-      //if (root == null) System.out.println("ay hay!!!! mapper");
-      String id = getNodeId(root, p);  // QTNodes...
-
-      if (id == null) {
-        System.out.println("LSkyMapper::map: point in pruned node. returning.");
-        return;  // Inside some pruned node of quadtree
-      }
-
-      output.collect(new Text(id), new Text(p.toString()));
-    }
-  }  
-
-  public static class LSkyReducer extends MapReduceBase implements Reducer<Text, Text, Text, Text> {
-    public MultipleOutputs mos;
-
-    public void configure(JobConf job) {
-      mos = new MultipleOutputs(job); 
-    }
-
-    public void reduce(Text key, Iterator<Text> values, OutputCollector<Text, Text> output, Reporter reporter) throws IOException {
-      // compute local skyline
-      Vector<Point> points = new Vector<Point>();
-		  while (values.hasNext()) {
-		    Point p = new Point();
-		    p.parseFromString(values.next().toString());
-			  points.add(p);
-			}
-			Vector<Point> skyline = GSKY(points);
-
-			// Output all points in skyline
-			Point vpn = new Point();
-			int[] filter = new int[DIM];
-		  for (int i = 0; i < DIM; ++i) {
-		    filter[i] = -1;
-		  }
-		  
-		  int j = 0;
-			for (Point p : skyline) {
-			  output.collect(key, new Text(p.toString()));
-			  for (int i = 0; i < DIM; ++i) {
-			    if (p.value[i] > vpn.value[i]) {
-			      vpn.value[i] = p.value[i];
-			    }
-			    if (filter[i] == -1 || p.value[i] < skyline.elementAt(filter[i]).value[i]) {
-			      filter[i] = j;
-			    }
-			  }
-			  ++j;
-			}
-			Arrays.sort(filter);
-
-			// Output VPn
-			mos.getCollector("vpn", reporter).collect(key, vpn.toString());
-			
-			// Output all skyfilter points
-			mos.getCollector("filter", reporter).collect(key, skyline.elementAt(filter[0]).toString());
-			for (int i = 1; i < DIM; ++i) {
-			  if (filter[i] != filter[i-1]) {
-    			mos.getCollector("filter", reporter).collect(key, skyline.elementAt(filter[i]).toString());
-			  }
-			}
-    }
-  }
-
-
-
+ 
   public static int INTERNAL_NODE = 0;
   public static int LEAF = 1;
   public static int PRUNED_NODE = 2;
@@ -532,6 +338,7 @@ public class Skyline extends Configured implements Tool {
         new BufferedReader(new FileReader(new File(filename)));
     return dfsReadQT(0, reader);
   }
+
 	private static BufferedReader br;
 	
 //	public static Path quad_tree_data_path;
